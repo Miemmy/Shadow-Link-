@@ -6,6 +6,8 @@ from datetime import datetime
 from celery_app import celery_app
 from db import scans_collection
 
+from risk_engine import calculate_risk_score
+
 # to sanitize input
 USERNAME_PATTERN = re.compile(r"^[a-zA-Z0-9._-]+$")
 
@@ -22,7 +24,7 @@ def perform_scan(scan_id: str, username: str =None, email:str = None) -> bool:
         target_username= email.split("@")[0]
         print(f"[WORKER] Extracted username '{target_username}' from email '{email}'")
 
-    if not target_username:
+    if not target_username and not email:
         print("[ERROR] No valid username or email provided.")
         return False
 
@@ -96,6 +98,9 @@ def perform_scan(scan_id: str, username: str =None, email:str = None) -> bool:
     except Exception as e:
         print(f"[ERROR] Unexpected: {e}")
 
+    risk_data = calculate_risk_score(results_list)
+    print(f"[RISK] Score : {risk_data['risk_score']} ({risk_data['risk_level']})")
+
     # saving results
     scans_collection.update_one(
         {"scan_id": scan_id},
@@ -104,7 +109,12 @@ def perform_scan(scan_id: str, username: str =None, email:str = None) -> bool:
                 "status": "completed",
                 "completed_at": datetime.utcnow(),
                 "results": results_list,
-                "found_count": len(results_list)
+                "found_count": len(results_list),
+
+                # save new info
+                "risk_score": risk_data["risk_score"],
+                "risk_level": risk_data["risk_level"],
+                "scan_summary": risk_data["scan_summary"]
             }
         }
     )

@@ -1,30 +1,31 @@
-from pydantic import BaseModel, EmailStr, model_validator
-from typing import List, Optional
+from pydantic import BaseModel, EmailStr, Field, model_validator
+from typing import List, Optional, Any, Dict
 from datetime import datetime
 
+# --- REQUEST MODEL ---
 class ScanRequest(BaseModel):
-    username: Optional[str]
-    email: Optional[EmailStr]
+    username: Optional[str] = Field(default=None)
+    email: Optional[EmailStr] = Field(default=None)
 
-#incase they give us nothing
-    @model_validator(mode="after")
-    def check_for_one(self):
-        if not self.username and not self.email:
-            raise ValueError("Either username or email must be provided.")
-        return self
+    # This validator ensures the USER sends at least one.
+    # It should ONLY run on the Request, not the Status.
+    
 
-# a single site result (e.g. GitHub)
 class ScanResult(BaseModel):
-    source: str       # Matches "source" in scanners.py
+    source: str       
     exists: bool
-    url: Optional[str] = None  # Matches "url" in scanners.py
+    url: Optional[str] = None 
 
-# The full status response
 class ScanStatus(BaseModel):
     scan_id: str
     status: str
-    found_count: int = 0  # Useful for the frontend to show a badge
+    
+    username_input: Optional[str] = None
+    email_input: Optional[str] = None
     created_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
+    found_count: int = 0
     results: List[ScanResult] = []
-
+    risk_score: int = 0       
+    risk_level: str = "PENDING"
+    scan_summary: Optional[str] = None

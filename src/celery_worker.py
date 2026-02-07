@@ -1,6 +1,6 @@
 from celery_app import celery_app
 
-# Import scanners so Celery knows what tasks exist
+# importing all scanners to register tasks
 import scanners 
 
 if __name__ == "__main__":
