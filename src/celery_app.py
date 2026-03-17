@@ -4,6 +4,7 @@ celery_app = Celery(
     "shadowlink",
     broker="redis://localhost:6379/0",
     backend="redis://localhost:6379/0",
+    include=["src.scanners"]
 )
 
 celery_app.conf.update(

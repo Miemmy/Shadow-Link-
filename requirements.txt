@@ -1,0 +1,33 @@
+# Web Framework
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+
+# Database
+pymongo==4.6.0
+pymongo[srv]==4.6.0
+
+# Task Queue
+celery==5.3.4
+redis==5.0.1
+
+# Async OSINT Scanning Engine
+aiohttp==3.9.1
+
+# Rate Limiting & Security
+slowapi==0.1.8
+python-multipart==0.0.6
+
+# Data Validation
+pydantic[email]==2.5.0
+pydantic-settings==2.1.0
+
+# Environment Configuration
+python-dotenv==1.0.0
+
+# Async Support
+redis[hiredis]==5.0.1
+
+# Development Tools
+pytest==7.4.3
+pytest-asyncio==0.21.1
+httpx==0.25.2

@@ -4,12 +4,14 @@ from datetime import datetime
 
 # --- REQUEST MODEL ---
 class ScanRequest(BaseModel):
-    username: Optional[str] = Field(default=None)
+    username: Optional[str] = Field(default=None, min_length=1, max_length=50)
     email: Optional[EmailStr] = Field(default=None)
 
-    # This validator ensures the USER sends at least one.
-    # It should ONLY run on the Request, not the Status.
-    
+    @model_validator(mode='after')
+    def validate_input(self):
+        if not self.username and not self.email:
+            raise ValueError("Either username or email must be provided")
+        return self
 
 class ScanResult(BaseModel):
     source: str       

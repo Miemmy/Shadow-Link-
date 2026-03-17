@@ -1,8 +1,17 @@
+# Security (NEVER UPLOAD THESE)
+.env
+*.pem
+
+# Virtual Environments
+.venv/
+venv/
+env/
+
+# Python Cache (Junk files)
 __pycache__/
 *.py[cod]
-.venv/
-env/
-venv/
-.env
-.DS_Store
-*.json
+*$py.class
+
+# Logs and Databases
+*.log
+celerybeat-schedule

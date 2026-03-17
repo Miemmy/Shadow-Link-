@@ -1,107 +1,67 @@
-from fastapi import Depends, FastAPI, HTTPException
-from scanners import perform_scan
-from models import ScanRequest, ScanStatus, ScanResult
-import uuid
-from datetime import datetime
-from db import scans_collection
-import io
-import csv
-from fastapi.responses import Response
+from fastapi import FastAPI, Request, HTTPException, status
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
-import redis.asyncio as redis
-from fastapi_limiter import FastAPILimiter 
-from fastapi_limiter.depends import RateLimiter
+from src.models import ScanRequest, ScanStatus
+from src.log import init_logging, get_api_logger
+from src.services import create_new_scan_task, get_scan_by_id
 
-main = FastAPI()
+# 1. Initialize FastAPI and Logger
+main = FastAPI(title="ShadowLink API")
+logger = get_api_logger()
 
-@main.get("/")
-def home():
-    return {"status": "API is running"}
+# 2. Initialize the IP-based Rate Limiter
+limiter = Limiter(key_func=get_remote_address)
+main.state.limiter = limiter
+main.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 @main.on_event("startup")
 async def startup():
-    redis_connection= redis.from_url("redis://localhost:6379", encoding="utf-8", decode_responses=True)
+    try:
+        init_logging()
+        logger.info("Starting ShadowLink API server (Public Mode with IP Rate Limiting)")
+    except Exception as e:
+        print(f"Failed to initialize logging: {e}")
+        raise
 
-    await FastAPILimiter.init(redis_connection)
-    print ("Rate Limiter Connected to Redis")
+@main.get("/")
+def home():
+    return {"status": "ShadowLink API is running"}
 
-@main.post("/scan" , 
-           response_model=ScanStatus, 
-           dependencies=[Depends(RateLimiter(times=3, seconds=60))])
-def start_scan(request:ScanRequest):
-     scan_id=str(uuid.uuid4())
+# 3. The Public POST Route (Protected by SlowAPI)
+@main.post("/scan", response_model=ScanStatus)
+@limiter.limit("5/minute")
+def start_scan(request: Request, payload: ScanRequest):
+    # The 'request' parameter is strictly here so SlowAPI can track the user's IP
+    
+    if not payload.username and not payload.email:
+        logger.warning("Scan rejected: Neither username nor email provided")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, 
+            detail="Either username or email must be provided"
+        )
+    
+    try:
+        # Hand off to the Kitchen (services.py)
+        new_scan = create_new_scan_task(payload.username, payload.email)
+        return new_scan
+    except Exception as e:
+        logger.error("Unexpected error in start_scan: %s", str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            detail="Failed to start scan"
+        )
 
-     new_scan = {
-        "scan_id": scan_id,
-        "status": "pending",
-        "created_at": datetime.utcnow(),
-        "timestamp": datetime.utcnow(),
-        "username_input": request.username,
-        "email_input": request.email,
-        "found_count": 0,
-        "results": []
-    }
-     try:
-        scans_collection.insert_one(new_scan)
-     except Exception as e:
-        raise HTTPException(status_code=500, detail="Failed to create scan record")   
-     perform_scan.delay(scan_id, request.username, request.email)
-     new_scan.pop("_id", None)  # remove mongoDB internal ID from displayed response
-     return new_scan   # basically new_scan
-
-     
-@main.get("/scan/{scan_id},response_model=ScanStatus")
-def get_scan_status(scan_id:str):
-     
-    scan= scans_collection.find_one({"scan_id":scan_id},{"_id":0}) #{"_id": 0} is set as zero in order to hide this field from the output response
-     
+# 4. The GET Route
+@main.get("/scan/{scan_id}", response_model=ScanStatus)
+@limiter.limit("20/minute") 
+def get_scan_status(request: Request, scan_id: str):
+    scan = get_scan_by_id(scan_id)
     if not scan:
-        raise HTTPException(status_code=404, detail="Scan not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail=f"Scan '{scan_id}' not found"
+        )
     return scan
-
-
-@main.get("/scan/{scan_id}/report")
-async def get_scan_report(scan_id:str):
-    scan_doc= scans_collection.find_one({"scan_id":scan_id})
-    
-    if not scan_doc:
-        raise HTTPException(status_code=404, detail="Scan not found")
-    
-    if scan_doc.get("status") != "completed":
-        raise HTTPException(status_code=400, detail="Scan not completed yet")
-
-    csv_file=io.StringIO()
-    writer=csv.writer(csv_file)
-
-    #header
-
-    writer.writerow(["Shadow Link Report"])
-    writer.writerow(["Target", scan_doc.get("username_input") or scan_doc.get("email_input")])
-    writer.writerow(["Risk Level", scan_doc.get("risk_level", "UNKNOWN")])
-    writer.writerow(["Risk Score", f"{scan_doc.get('risk_score', 0)}/100"])
-    writer.writerow([])
-
-    #table header
-    writer.writerow(["Website", "Link", "Status"])
-
-    for result in scan_doc.get("results", []):
-        writer.writerow([
-            result.get("source", "UNKNOWN"),
-            result.get("url", "N/A"),
-            "Found" 
-        ])
-
-    file_content=csv_file.getvalue().encode("utf-8")
-
-    file_name=f"Report_{scan_doc.get('scan_id')}.csv"
-
-    return Response(
-        content=file_content,
-        media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename={file_name}"}
-    )
-
-
-
-
 
